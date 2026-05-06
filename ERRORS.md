@@ -316,6 +316,82 @@ allow_origins=[
 
 ---
 
+---
+
+## Error 11: Railway not auto-deploying from GitHub pushes
+
+### Where it appeared
+Every time we pushed a fix to GitHub, Railway kept running the old code. The CORS and env var fixes never took effect despite successful `git push`.
+
+### Why it happened
+Railway was deployed manually the first time (either via CLI or dashboard drag-and-drop), which creates a deployment with **no GitHub connection**. Railway does not automatically link to GitHub unless you explicitly connect the repo in the dashboard. Every subsequent `git push` went to GitHub but Railway never saw it — it was still running the original uploaded code.
+
+### Fix
+Two steps:
+1. Used `railway up --detach` from the CLI to force-upload local code directly to Railway (bypasses GitHub entirely)
+2. Connect Railway to GitHub permanently: Railway dashboard → service → Settings → Source → Connect Repo → select `nitishhrms/ai-company-researcher` → from now on every `git push` triggers an auto-redeploy
+
+---
+
+## Error 12: Railway proxy strips `Access-Control-Allow-Origin` — CORS never resolved at the app level
+
+### Where it appeared
+Browser console — persisted even after `allow_origins=["*"]` and an explicit `@app.options("/research")` endpoint were deployed
+
+### Full error
+```
+Access to fetch at 'https://ai-company-researcher-production.up.railway.app/research'
+from origin 'https://frontend-qwerty15.vercel.app' has been blocked by CORS policy:
+Response to preflight request doesn't pass access control check:
+No 'Access-Control-Allow-Origin' header is present on the requested resource.
+```
+
+### Why it happened
+Railway's infrastructure has a reverse proxy (load balancer) that sits in front of every deployed app. When a browser sends an OPTIONS preflight to the Railway URL, Railway's proxy intercepts it and returns its own 400 response — **before the request ever reaches FastAPI**. This proxy strips `Access-Control-Allow-Origin` from the response. No amount of FastAPI CORS configuration fixes this because FastAPI never sees the preflight request.
+
+Confirmed via curl:
+```bash
+curl -X OPTIONS https://ai-company-researcher-production.up.railway.app/research \
+  -H "Origin: https://frontend-qwerty15.vercel.app" \
+  -H "Access-Control-Request-Method: POST" -v
+
+# Response:
+< HTTP/1.1 400 Bad Request
+< Access-Control-Allow-Headers: content-type   ← proxy's own headers
+< Access-Control-Allow-Methods: POST, GET, OPTIONS
+# Access-Control-Allow-Origin is completely absent
+```
+
+### Fix
+Bypass CORS entirely using **Vercel rewrites as a server-side proxy**. Instead of the browser calling Railway directly, it calls a Vercel route (`/api/research`) on the same origin (no CORS check). Vercel's edge network forwards the request to Railway server-to-server (no browser involved, no CORS).
+
+**`frontend/next.config.js`:**
+```javascript
+const nextConfig = {
+  async rewrites() {
+    return [
+      {
+        source: "/api/research",
+        destination: "https://ai-company-researcher-production.up.railway.app/research",
+      },
+    ];
+  },
+};
+```
+
+**`frontend/app/page.tsx`** — changed fetch URL:
+```typescript
+// Before — browser calls Railway directly → CORS blocked
+const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/research`, ...)
+
+// After — browser calls Vercel (same origin) → no CORS
+const response = await fetch(`/api/research`, ...)
+```
+
+**Why this works:** Browser → Vercel (same origin, no CORS) → Railway (server-to-server, no CORS). The proxy pattern completely sidesteps the browser's CORS enforcement.
+
+---
+
 ## Summary Table
 
 | # | Error | Root Cause | Fixed In |
@@ -330,3 +406,5 @@ allow_origins=[
 | 8 | `'$PORT' is not a valid integer` | Railway didn't expand `$PORT` in shell-form CMD | `Dockerfile` |
 | 9 | `Did not find tavily_api_key` — startup crash | Missing Railway env vars + module-level tool instantiation | Railway dashboard + `agent/tools.py` |
 | 10 | CORS blocked on preflight | FastAPI CORSMiddleware doesn't support wildcard subdomains | `api.py` |
+| 11 | Railway not auto-deploying from GitHub | No GitHub repo connected — Railway ran original upload only | Railway dashboard → Connect Repo |
+| 12 | Railway proxy strips `Access-Control-Allow-Origin` | Railway's load balancer intercepts OPTIONS before FastAPI | Vercel rewrites proxy (`next.config.js` + `page.tsx`) |
