@@ -13,8 +13,6 @@ def _on_retry(retry_state):
 
 # ── Tool 1: Web search ────────────────────────────────────────────────────────
 
-web_search = TavilySearch(max_results=5, name="web_search")
-
 
 # ── Retry-wrapped browser helpers (not tools themselves) ──────────────────────
 
@@ -103,4 +101,5 @@ def fill_form_field(selector: str, value: str) -> str:
 
 
 def get_tools():
+    web_search = TavilySearch(max_results=5, name="web_search")
     return [web_search, visit_webpage, click_element, scroll_page, fill_form_field]
