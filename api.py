@@ -5,7 +5,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from fastapi import FastAPI, Request, Response
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from langchain_core.messages import HumanMessage
@@ -14,12 +13,12 @@ from agent.graph import build_graph
 
 app = FastAPI()
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+CORS_HEADERS = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+    "Access-Control-Allow-Headers": "*",
+    "Access-Control-Max-Age": "600",
+}
 
 
 class ResearchRequest(BaseModel):
@@ -29,14 +28,9 @@ class ResearchRequest(BaseModel):
 # build once at startup — not on every request
 _graph = build_graph()
 
-CORS_HEADERS = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
-    "Access-Control-Allow-Headers": "*",
-}
 
-
-# Explicit OPTIONS handler — bypasses middleware for Railway's proxy
+# Handle preflight for /research — CORSMiddleware removed because it intercepts
+# OPTIONS before our route and returns 400 on Railway's proxy
 @app.options("/research")
 def research_options():
     return Response(status_code=200, headers=CORS_HEADERS)
@@ -76,7 +70,6 @@ def stream_research(company: str):
     yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
 
-# sync def — FastAPI runs this in a thread pool so graph.stream() doesn't block the event loop
 @app.post("/research")
 def research(request: ResearchRequest):
     return StreamingResponse(
