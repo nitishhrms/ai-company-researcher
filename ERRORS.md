@@ -237,6 +237,85 @@ CMD ["sh", "-c", "uvicorn api:app --host 0.0.0.0 --port ${PORT:-8000}"]
 
 ---
 
+## Error 9: `Did not find tavily_api_key` — Server crashes on startup
+
+### Where it appeared
+Railway deployment — server crashed immediately on every start, never became healthy
+
+### Full error
+```
+pydantic_core._pydantic_core.ValidationError: 1 validation error for TavilySearchAPIWrapper
+  Value error, Did not find tavily_api_key, please add an environment variable
+  `TAVILY_API_KEY` which contains it, or pass `tavily_api_key` as a named parameter.
+
+File "/app/agent/tools.py", line 16, in <module>
+    web_search = TavilySearch(max_results=5, name="web_search")
+```
+
+### Why it happened
+Two problems combined:
+
+**Problem 1 — Missing env var on Railway:** `TAVILY_API_KEY` (and the other keys) were never added to Railway's Variables tab. Railway does not read your local `.env` file — env vars must be added manually in the dashboard.
+
+**Problem 2 — Module-level instantiation:** `TavilySearch` was created at the top of `tools.py` as a module-level variable (line 16), not inside a function. This means it runs the moment uvicorn imports the app — before any request arrives. If the env var is missing, the import itself crashes and the server never starts.
+
+### Fix
+**Fix 1 (required):** Added all env vars to Railway dashboard → service → Variables:
+```
+ANTHROPIC_API_KEY, TAVILY_API_KEY, LANGCHAIN_API_KEY,
+LANGCHAIN_TRACING_V2, LANGCHAIN_PROJECT, PYTHONUNBUFFERED
+```
+
+**Fix 2 (code):** Moved `TavilySearch` instantiation inside `get_tools()` so it only runs when first request comes in, not at import time:
+```python
+# Before — crashes server on startup if env var missing
+web_search = TavilySearch(max_results=5, name="web_search")
+
+def get_tools():
+    return [web_search, ...]
+
+# After — fails gracefully at request time, server still starts
+def get_tools():
+    web_search = TavilySearch(max_results=5, name="web_search")
+    return [web_search, ...]
+```
+
+---
+
+## Error 10: CORS blocked — `No 'Access-Control-Allow-Origin' header is present`
+
+### Where it appeared
+Browser console — when the Vercel frontend tried to call the Railway backend
+
+### Full error
+```
+Access to fetch at 'https://ai-company-researcher-production.up.railway.app/research'
+from origin 'https://frontend-qwerty15.vercel.app' has been blocked by CORS policy:
+Response to preflight request doesn't pass access control check:
+No 'Access-Control-Allow-Origin' header is present on the requested resource.
+```
+
+### Why it happened
+The CORS `allow_origins` list in `api.py` contained `"https://*.vercel.app"` — intended to match all Vercel subdomains. But FastAPI's `CORSMiddleware` (from Starlette) does **not** support wildcard subdomains. It compares origins as exact strings only. The literal string `"https://*.vercel.app"` never matched the actual origin `"https://frontend-qwerty15.vercel.app"`, so every preflight OPTIONS request was rejected.
+
+### Fix
+Replaced the wildcard with the exact Vercel deployment URL:
+```python
+# Before — wildcard looks right but doesn't work
+allow_origins=[
+    "http://localhost:3000",
+    "https://*.vercel.app",   # ← treated as a literal string, never matches
+]
+
+# After — exact URL
+allow_origins=[
+    "http://localhost:3000",
+    "https://frontend-qwerty15.vercel.app",   # ← exact match, works
+]
+```
+
+---
+
 ## Summary Table
 
 | # | Error | Root Cause | Fixed In |
@@ -249,3 +328,5 @@ CMD ["sh", "-c", "uvicorn api:app --host 0.0.0.0 --port ${PORT:-8000}"]
 | 6 | `NotImplementedError` in asyncio | Windows SelectorEventLoop can't create subprocesses from threads | `agent/browser.py` |
 | 7 | Max iterations reached too early | `MAX_STEPS=10` too low for thorough research | `agent/graph.py` |
 | 8 | `'$PORT' is not a valid integer` | Railway didn't expand `$PORT` in shell-form CMD | `Dockerfile` |
+| 9 | `Did not find tavily_api_key` — startup crash | Missing Railway env vars + module-level tool instantiation | Railway dashboard + `agent/tools.py` |
+| 10 | CORS blocked on preflight | FastAPI CORSMiddleware doesn't support wildcard subdomains | `api.py` |
