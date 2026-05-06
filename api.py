@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -28,6 +28,18 @@ class ResearchRequest(BaseModel):
 
 # build once at startup — not on every request
 _graph = build_graph()
+
+CORS_HEADERS = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+    "Access-Control-Allow-Headers": "*",
+}
+
+
+# Explicit OPTIONS handler — bypasses middleware for Railway's proxy
+@app.options("/research")
+def research_options():
+    return Response(status_code=200, headers=CORS_HEADERS)
 
 
 def stream_research(company: str):
@@ -70,7 +82,11 @@ def research(request: ResearchRequest):
     return StreamingResponse(
         stream_research(request.company),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Access-Control-Allow-Origin": "*",
+        },
     )
 
 
