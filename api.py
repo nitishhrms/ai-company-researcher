@@ -20,7 +20,7 @@ app.add_middleware(
         "http://localhost:3000",
         "http://localhost:3001",
         "http://localhost:3002",
-        "https://*.vercel.app",
+        "https://frontend-qwerty15.vercel.app",
     ],
     allow_methods=["POST", "GET", "OPTIONS"],
     allow_headers=["*"],
