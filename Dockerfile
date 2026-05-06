@@ -22,5 +22,4 @@ COPY . .
 
 EXPOSE ${PORT:-8000}
 
-# Shell form (not JSON array) so $PORT is expanded at runtime by Railway
-CMD uvicorn api:app --host 0.0.0.0 --port ${PORT:-8000}
+CMD ["sh", "-c", "uvicorn api:app --host 0.0.0.0 --port ${PORT:-8000}"]
