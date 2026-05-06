@@ -4,9 +4,8 @@
     "builder": "DOCKERFILE"
   },
   "deploy": {
-    "startCommand": "uvicorn api:app --host 0.0.0.0 --port $PORT",
     "healthcheckPath": "/health",
-    "healthcheckTimeout": 100,
+    "healthcheckTimeout": 300,
     "restartPolicyType": "ON_FAILURE"
   }
 }
