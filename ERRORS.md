@@ -204,6 +204,39 @@ MAX_STEPS = 15
 
 ---
 
+---
+
+## Error 8: `Invalid value for '--port': '$PORT' is not a valid integer`
+
+### Where it appeared
+Railway deployment — container kept crashing and restarting in a loop
+
+### Full error
+```
+Usage: uvicorn [OPTIONS] APP
+Try 'uvicorn --help' for help.
+Error: Invalid value for '--port': '$PORT' is not a valid integer.
+```
+
+### Why it happened
+The Dockerfile `CMD` was written in shell form:
+```dockerfile
+CMD uvicorn api:app --host 0.0.0.0 --port ${PORT:-8000}
+```
+Shell form is supposed to run under `/bin/sh -c`, which expands `$PORT`. However, Railway's container runtime did not expand the variable — it passed the literal string `$PORT` directly to uvicorn, which rejected it as a non-integer.
+
+### Fix
+Changed CMD to exec form with an explicit `sh -c` call, which guarantees shell variable expansion regardless of runtime:
+```dockerfile
+# Before
+CMD uvicorn api:app --host 0.0.0.0 --port ${PORT:-8000}
+
+# After
+CMD ["sh", "-c", "uvicorn api:app --host 0.0.0.0 --port ${PORT:-8000}"]
+```
+
+---
+
 ## Summary Table
 
 | # | Error | Root Cause | Fixed In |
@@ -215,3 +248,4 @@ MAX_STEPS = 15
 | 5 | `Could not import module "api"` | uvicorn run from wrong directory | Terminal command |
 | 6 | `NotImplementedError` in asyncio | Windows SelectorEventLoop can't create subprocesses from threads | `agent/browser.py` |
 | 7 | Max iterations reached too early | `MAX_STEPS=10` too low for thorough research | `agent/graph.py` |
+| 8 | `'$PORT' is not a valid integer` | Railway didn't expand `$PORT` in shell-form CMD | `Dockerfile` |
